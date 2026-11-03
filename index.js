@@ -23,7 +23,8 @@ app.use(express.json());
 
 const mongoClient = await connectToMongoDB();
 const db = mongoClient.db("studio-space");
-const studioCollection = db.collection("studios");
+const studioCollection = db.collection("studios"); 
+const studioBookingCollection = db.collection("studio-bookings"); 
 
 
 
@@ -32,6 +33,21 @@ const studioCollection = db.collection("studios");
 
 app.get("/studios", async (req, res) => {
   const result = await studioCollection.find().toArray();
+  res.send(result);
+});
+
+app.get("/studios/:id", async (req, res) => {
+  const { id } = req.params;
+  const result = await studioCollection.findOne({
+    _id: new ObjectId(id),
+  });
+  res.send(result);
+})
+
+app.post("/studio-bookings", async (req, res) => {
+  const data = req.body;
+  const result = await studioBookingCollection.insertOne(data);
+  console.log(result);
   res.send(result);
 });
 
