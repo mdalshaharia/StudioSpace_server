@@ -51,6 +51,32 @@ app.post("/studio-bookings", async (req, res) => {
   res.send(result);
 });
 
+app.get("/studio-bookings/:userId", async (req, res) => {
+  const { userId } = req.params;
+  const userIdString = userId.toString();
+  console.log(userId);
+  const result = await studioBookingCollection.find({ userId: userId }).toArray();
+  console.log(result);
+  res.send(result);
+})
+
+app.delete("/studio-bookings/:productId", async (req, res) => {
+  const { productId } = req.params;
+  const result = await studioBookingCollection.deleteOne({
+    productId: productId
+  });
+  res.json(result);
+});
+
+app.patch("/studio-bookings/:bookingId", async (req, res) => {
+  const { bookingId } = req.params;
+  const data = req.body;
+  const result = await studioBookingCollection.updateOne(
+    { _id: new ObjectId(bookingId) },
+    { $set: data },
+  );
+  res.json(result);
+});
 
 
 
