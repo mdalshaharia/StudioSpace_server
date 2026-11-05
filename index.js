@@ -24,7 +24,8 @@ app.use(express.json());
 const mongoClient = await connectToMongoDB();
 const db = mongoClient.db("studio-space");
 const studioCollection = db.collection("studios"); 
-const studioBookingCollection = db.collection("studio-bookings"); 
+const studioBookingCollection = db.collection("studio-bookings");
+const myStudioListingCollection = db.collection("my-listings"); 
 
 
 
@@ -36,6 +37,14 @@ app.get("/studios", async (req, res) => {
   res.send(result);
 });
 
+
+app.post("/studios", async (req, res) => {
+  const data = req.body;
+  const result = await studioCollection.insertOne(data);
+  console.log(result);
+  res.send(result);
+});
+
 app.get("/studios/:id", async (req, res) => {
   const { id } = req.params;
   const result = await studioCollection.findOne({
@@ -43,6 +52,36 @@ app.get("/studios/:id", async (req, res) => {
   });
   res.send(result);
 })
+
+app.put("/studios/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid studio id." });
+  }
+  const data = req.body;
+  const result = await studioCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: data }
+  );
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ message: "Studio not found." });
+  }
+  res.json(result);
+});
+
+app.delete("/studios/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid studio id." });
+  }
+  const result = await studioCollection.deleteOne({
+    _id: new ObjectId(id),
+  });
+  if (result.deletedCount === 0) {
+    return res.status(404).json({ message: "Studio not found." });
+  }
+  res.json(result);
+});
 
 app.post("/studio-bookings", async (req, res) => {
   const data = req.body;
@@ -78,7 +117,21 @@ app.patch("/studio-bookings/:bookingId", async (req, res) => {
   res.json(result);
 });
 
+app.get("/my-listings/:userId", async (req, res) => {
+  const { userId } = req.params;
+  // const userIdString = userId.toString();
+  console.log(userId);
+  const result = await myStudioListingCollection.find({ ownerId: userId }).toArray();
+  console.log(result);
+  res.send(result);
+})
 
+app.post("/my-listings", async (req, res) => {
+  const data = req.body;
+  const result = await myStudioListingCollection.insertOne(data);
+  console.log(result);
+  res.send(result);
+});
 
 
 
