@@ -23,9 +23,9 @@ app.use(express.json());
 
 const mongoClient = await connectToMongoDB();
 const db = mongoClient.db("studio-space");
-const studioCollection = db.collection("studios"); 
+const studioCollection = db.collection("studios");
 const studioBookingCollection = db.collection("studio-bookings");
-const myStudioListingCollection = db.collection("my-listings"); 
+const myStudioListingCollection = db.collection("my-listings");
 
 
 
@@ -38,11 +38,31 @@ app.get("/studios", async (req, res) => {
 });
 
 
+
+
 app.post("/studios", async (req, res) => {
   const data = req.body;
   const result = await studioCollection.insertOne(data);
-  console.log(result);
+  // console.log(result);
   res.send(result);
+});
+
+
+app.put("/studios/:id", async (req, res) => {
+  const { id } = req.params;
+  const updatedData = req.body;
+  console.log(updatedData)
+
+    const result = await studioCollection.updateOne(
+      { _id: new ObjectId(id) }, // Match by document _id
+      { $set: updatedData }      // Overwrite/update the fields provided in the body
+    );
+    console.log(result)
+    res.json({ 
+      success: true, 
+      message: "Booking updated successfully", 
+      result 
+    });
 });
 
 app.get("/studios/:id", async (req, res) => {
@@ -53,58 +73,38 @@ app.get("/studios/:id", async (req, res) => {
   res.send(result);
 })
 
-app.put("/studios/:id", async (req, res) => {
-  const { id } = req.params;
-  if (!ObjectId.isValid(id)) {
-    return res.status(400).json({ message: "Invalid studio id." });
-  }
-  const data = req.body;
-  const result = await studioCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: data }
-  );
-  if (result.matchedCount === 0) {
-    return res.status(404).json({ message: "Studio not found." });
-  }
-  res.json(result);
-});
-
-app.delete("/studios/:id", async (req, res) => {
-  const { id } = req.params;
-  if (!ObjectId.isValid(id)) {
-    return res.status(400).json({ message: "Invalid studio id." });
-  }
-  const result = await studioCollection.deleteOne({
-    _id: new ObjectId(id),
-  });
-  if (result.deletedCount === 0) {
-    return res.status(404).json({ message: "Studio not found." });
-  }
-  res.json(result);
-});
-
 app.post("/studio-bookings", async (req, res) => {
   const data = req.body;
   const result = await studioBookingCollection.insertOne(data);
-  console.log(result);
+  // console.log(result);
   res.send(result);
 });
 
 app.get("/studio-bookings/:userId", async (req, res) => {
   const { userId } = req.params;
   const userIdString = userId.toString();
-  console.log(userId);
+  // console.log(userId);
   const result = await studioBookingCollection.find({ userId: userId }).toArray();
-  console.log(result);
+  // console.log(result);
   res.send(result);
 })
 
 app.delete("/studio-bookings/:productId", async (req, res) => {
   const { productId } = req.params;
-  const result = await studioBookingCollection.deleteOne({
-    productId: productId
-  });
-  res.json(result);
+  const { userId } = req.query; // Grabbing userId from query parameters
+
+  try {
+    const result = await studioBookingCollection.deleteOne({
+      productId: productId,
+      userId: userId, // Matches both fields for security and accuracy
+    });
+
+    // console.log("Delete result:", result);
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to delete booking:", err);
+    res.status(500).json({ error: "Failed to delete booking" });
+  }
 });
 
 app.patch("/studio-bookings/:bookingId", async (req, res) => {
@@ -120,16 +120,16 @@ app.patch("/studio-bookings/:bookingId", async (req, res) => {
 app.get("/my-listings/:userId", async (req, res) => {
   const { userId } = req.params;
   // const userIdString = userId.toString();
-  console.log(userId);
+  // console.log(userId);
   const result = await myStudioListingCollection.find({ ownerId: userId }).toArray();
-  console.log(result);
+  // console.log(result);
   res.send(result);
 })
 
 app.post("/my-listings", async (req, res) => {
   const data = req.body;
   const result = await myStudioListingCollection.insertOne(data);
-  console.log(result);
+  // console.log(result);
   res.send(result);
 });
 
