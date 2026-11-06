@@ -65,6 +65,24 @@ app.put("/studios/:id", async (req, res) => {
     });
 });
 
+app.delete("/studios/:studioId", async (req, res) => {
+  const { studioId } = req.params;
+  const { userId } = req.query; // Grabbing userId from query parameters
+  console.log( 'from delete' ,studioId, userId)
+
+  try {
+    const result = await studioCollection.deleteOne({
+      _id: new ObjectId(studioId),
+      ownerId : userId, // Matches both fields for security and accuracy
+    });
+    console.log("Delete result:", result);
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to delete studio:", err);
+    res.status(500).json({ error: "Failed to delete studio" });
+  }
+});
+
 app.get("/studios/:id", async (req, res) => {
   const { id } = req.params;
   const result = await studioCollection.findOne({
@@ -131,6 +149,24 @@ app.post("/my-listings", async (req, res) => {
   const result = await myStudioListingCollection.insertOne(data);
   // console.log(result);
   res.send(result);
+});
+
+app.delete("/my-listings/:productId", async (req, res) => {
+  const { productId } = req.params;
+  const { userId } = req.query; // Grabbing userId from query parameters
+
+  try {
+    const result = await myStudioListingCollection.deleteOne({
+      productId: productId,
+      ownerId: userId, // Matches both fields for security and accuracy
+    });
+
+    // console.log("Delete result:", result);
+    res.json(result);
+  } catch (err) {
+    console.error("Failed to delete listings:", err);
+    res.status(500).json({ error: "Failed to delete listings" });
+  }
 });
 
 
