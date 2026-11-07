@@ -27,8 +27,30 @@ const studioCollection = db.collection("studios");
 const studioBookingCollection = db.collection("studio-bookings");
 const myStudioListingCollection = db.collection("my-listings");
 
+/* one shared JWKS client — creating it per-request would re-fetch keys
+   from the auth server on every call */
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+);
 
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ msg: "Unauthorized!" });
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).send({ msg: "Unauthorized!" });
+  }
 
+  try {
+    await jwtVerify(token, JWKS);
+    next();
+  } catch (error) {
+    // invalid or expired token is an auth failure, not a server error
+    return res.status(401).send({ msg: "Unauthorized! Invalid or expired token." });
+  }
+};
 
 
 
@@ -39,8 +61,7 @@ app.get("/studios", async (req, res) => {
 
 
 
-
-app.post("/studios", async (req, res) => {
+app.post("/studios", verifyToken, async (req, res) => {
   const data = req.body;
   const result = await studioCollection.insertOne(data);
   // console.log(result);
@@ -48,7 +69,7 @@ app.post("/studios", async (req, res) => {
 });
 
 
-app.put("/studios/:id", async (req, res) => {
+app.put("/studios/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
   const updatedData = req.body;
   console.log(updatedData)
@@ -65,7 +86,7 @@ app.put("/studios/:id", async (req, res) => {
     });
 });
 
-app.delete("/studios/:studioId", async (req, res) => {
+app.delete("/studios/:studioId", verifyToken, async (req, res) => {
   const { studioId } = req.params;
   const { userId } = req.query; // Grabbing userId from query parameters
   console.log( 'from delete' ,studioId, userId)
@@ -91,14 +112,14 @@ app.get("/studios/:id", async (req, res) => {
   res.send(result);
 })
 
-app.post("/studio-bookings", async (req, res) => {
+app.post("/studio-bookings", verifyToken, async (req, res) => {
   const data = req.body;
   const result = await studioBookingCollection.insertOne(data);
   // console.log(result);
   res.send(result);
 });
 
-app.get("/studio-bookings/:userId", async (req, res) => {
+app.get("/studio-bookings/:userId", verifyToken, async (req, res) => {
   const { userId } = req.params;
   const userIdString = userId.toString();
   // console.log(userId);
@@ -107,13 +128,13 @@ app.get("/studio-bookings/:userId", async (req, res) => {
   res.send(result);
 })
 
-app.delete("/studio-bookings/:productId", async (req, res) => {
-  const { productId } = req.params;
+app.delete("/studio-bookings/:studioId", verifyToken, async (req, res) => {
+  const { studioId } = req.params;
   const { userId } = req.query; // Grabbing userId from query parameters
 
   try {
     const result = await studioBookingCollection.deleteOne({
-      productId: productId,
+      studioId: studioId,
       userId: userId, // Matches both fields for security and accuracy
     });
 
@@ -125,7 +146,7 @@ app.delete("/studio-bookings/:productId", async (req, res) => {
   }
 });
 
-app.patch("/studio-bookings/:bookingId", async (req, res) => {
+app.patch("/studio-bookings/:bookingId", verifyToken, async (req, res) => {
   const { bookingId } = req.params;
   const data = req.body;
   const result = await studioBookingCollection.updateOne(
@@ -135,7 +156,7 @@ app.patch("/studio-bookings/:bookingId", async (req, res) => {
   res.json(result);
 });
 
-app.get("/my-listings/:userId", async (req, res) => {
+app.get("/my-listings/:userId", verifyToken, async (req, res) => {
   const { userId } = req.params;
   // const userIdString = userId.toString();
   // console.log(userId);
@@ -144,20 +165,20 @@ app.get("/my-listings/:userId", async (req, res) => {
   res.send(result);
 })
 
-app.post("/my-listings", async (req, res) => {
+app.post("/my-listings", verifyToken, async (req, res) => {
   const data = req.body;
   const result = await myStudioListingCollection.insertOne(data);
   // console.log(result);
   res.send(result);
 });
 
-app.delete("/my-listings/:productId", async (req, res) => {
-  const { productId } = req.params;
+app.delete("/my-listings/:studioId", verifyToken, async (req, res) => {
+  const { studioId } = req.params;
   const { userId } = req.query; // Grabbing userId from query parameters
 
   try {
     const result = await myStudioListingCollection.deleteOne({
-      productId: productId,
+      studioId: studioId,
       ownerId: userId, // Matches both fields for security and accuracy
     });
 
