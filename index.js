@@ -1,144 +1,189 @@
 import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import "dotenv/config";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+
 const app = express();
-const PORT = 8000;
+const PORT = process.env.PORT || 8000;
 
 const client = new MongoClient(process.env.MONGODB_URI);
 
 export async function connectToMongoDB() {
   try {
     await client.connect();
-    console.log("You successfully connected to MongoDB!");
     return client;
   } catch (err) {
-    console.dir(err);
+    console.error("MongoDB connection failed:", err);
   }
 }
 
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL,
+    credentials: true,
+  })
+);
 app.use(express.json());
+app.use(cookieParser());
 
 const mongoClient = await connectToMongoDB();
 const db = mongoClient.db("studio-space");
 const studioCollection = db.collection("studios");
 const studioBookingCollection = db.collection("studio-bookings");
 const myStudioListingCollection = db.collection("my-listings");
+const uploadsCollection = db.collection("uploads");
 
-/* one shared JWKS client — creating it per-request would re-fetch keys
-   from the auth server on every call */
 const JWKS = createRemoteJWKSet(
   new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
 );
 
 const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).send({ msg: "Unauthorized!" });
-  }
-  const token = authHeader.split(" ")[1];
+  const token = req.cookies?.token ?? req.headers.authorization?.split(" ")[1];
   if (!token) {
     return res.status(401).send({ msg: "Unauthorized!" });
   }
 
   try {
-    await jwtVerify(token, JWKS);
+    const { payload } = await jwtVerify(token, JWKS);
+    req.user = payload;
     next();
   } catch (error) {
-    // invalid or expired token is an auth failure, not a server error
     return res.status(401).send({ msg: "Unauthorized! Invalid or expired token." });
   }
 };
 
+app.post("/auth/login", (req, res) => {
+  const { token } = req.body;
+  if (!token) {
+    return res.status(400).json({ msg: "Token is required." });
+  }
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",
+    maxAge: 24 * 60 * 60 * 1000,
+  });
+  res.json({ success: true });
+});
 
+app.post("/auth/logout", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",
+  });
+  res.json({ success: true });
+});
 
 app.get("/studios", async (req, res) => {
   const result = await studioCollection.find().toArray();
   res.send(result);
 });
 
-
-
 app.post("/studios", verifyToken, async (req, res) => {
   const data = req.body;
   const result = await studioCollection.insertOne(data);
-  // console.log(result);
   res.send(result);
 });
-
 
 app.put("/studios/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
   const updatedData = req.body;
-  console.log(updatedData)
 
-    const result = await studioCollection.updateOne(
-      { _id: new ObjectId(id) }, // Match by document _id
-      { $set: updatedData }      // Overwrite/update the fields provided in the body
-    );
-    console.log(result)
-    res.json({ 
-      success: true, 
-      message: "Booking updated successfully", 
-      result 
-    });
+  const result = await studioCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updatedData }
+  );
+  res.json({
+    success: true,
+    message: "Studio updated successfully",
+    result
+  });
 });
 
-app.delete("/studios/:studioId", verifyToken, async (req, res) => {
-  const { studioId } = req.params;
-  const { userId } = req.query; // Grabbing userId from query parameters
-  console.log( 'from delete' ,studioId, userId)
+app.delete("/studios/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user?.userId ?? req.user?.sub ?? req.query.userId;
+
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid studio id." });
+  }
 
   try {
     const result = await studioCollection.deleteOne({
-      _id: new ObjectId(studioId),
-      ownerId : userId, // Matches both fields for security and accuracy
+      _id: new ObjectId(id),
+      ownerId: userId,
     });
-    console.log("Delete result:", result);
-    res.json(result);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        message: "Studio not found or you don't have permission to delete it.",
+      });
+    }
+
+    res.json({ message: "Studio deleted successfully", result });
   } catch (err) {
     console.error("Failed to delete studio:", err);
-    res.status(500).json({ error: "Failed to delete studio" });
+    res.status(500).json({ message: "Failed to delete studio" });
   }
 });
 
 app.get("/studios/:id", async (req, res) => {
   const { id } = req.params;
   const result = await studioCollection.findOne({
-    _id: new ObjectId(id),
+    _id: new ObjectId(id) || id,
   });
   res.send(result);
-})
+});
 
 app.post("/studio-bookings", verifyToken, async (req, res) => {
-  const data = req.body;
-  const result = await studioBookingCollection.insertOne(data);
-  // console.log(result);
-  res.send(result);
+  const { studioId, date, startTime, endTime } = req.body;
+
+  if (!studioId || !date || !startTime || !endTime) {
+    return res.status(400).json({ message: "studioId, date, startTime and endTime are required." });
+  }
+
+  try {
+    const conflict = await studioBookingCollection.findOne({
+      studioId,
+      date,
+      status: "Confirmed",
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    });
+
+    if (conflict) {
+      return res.status(409).json({
+        message: `That time clashes with a confirmed booking (${conflict.startTime}–${conflict.endTime} on ${date}). Please pick a different slot.`,
+      });
+    }
+
+    const result = await studioBookingCollection.insertOne(req.body);
+    res.send(result);
+  } catch (err) {
+    console.error("Failed to create booking:", err);
+    res.status(500).json({ message: "Failed to create booking." });
+  }
 });
 
 app.get("/studio-bookings/:userId", verifyToken, async (req, res) => {
   const { userId } = req.params;
-  const userIdString = userId.toString();
-  // console.log(userId);
   const result = await studioBookingCollection.find({ userId: userId }).toArray();
-  // console.log(result);
   res.send(result);
 })
 
 app.delete("/studio-bookings/:studioId", verifyToken, async (req, res) => {
   const { studioId } = req.params;
-  const { userId } = req.query; // Grabbing userId from query parameters
+  const { userId } = req.query;
 
   try {
     const result = await studioBookingCollection.deleteOne({
       studioId: studioId,
-      userId: userId, // Matches both fields for security and accuracy
+      userId: userId,
     });
 
-    // console.log("Delete result:", result);
     res.json(result);
   } catch (err) {
     console.error("Failed to delete booking:", err);
@@ -158,31 +203,26 @@ app.patch("/studio-bookings/:bookingId", verifyToken, async (req, res) => {
 
 app.get("/my-listings/:userId", verifyToken, async (req, res) => {
   const { userId } = req.params;
-  // const userIdString = userId.toString();
-  // console.log(userId);
   const result = await myStudioListingCollection.find({ ownerId: userId }).toArray();
-  // console.log(result);
   res.send(result);
 })
 
 app.post("/my-listings", verifyToken, async (req, res) => {
   const data = req.body;
   const result = await myStudioListingCollection.insertOne(data);
-  // console.log(result);
   res.send(result);
 });
 
 app.delete("/my-listings/:studioId", verifyToken, async (req, res) => {
   const { studioId } = req.params;
-  const { userId } = req.query; // Grabbing userId from query parameters
+  const { userId } = req.query;
 
   try {
     const result = await myStudioListingCollection.deleteOne({
       studioId: studioId,
-      ownerId: userId, // Matches both fields for security and accuracy
+      ownerId: userId,
     });
 
-    // console.log("Delete result:", result);
     res.json(result);
   } catch (err) {
     console.error("Failed to delete listings:", err);
@@ -190,22 +230,29 @@ app.delete("/my-listings/:studioId", verifyToken, async (req, res) => {
   }
 });
 
+app.get("/uploads/:ownerId", verifyToken, async (req, res) => {
+  const { ownerId } = req.params;
+  const result = await uploadsCollection.find({ ownerId }).toArray();
+  res.send(result);
+});
 
-
-
-
-
-
-
-
-//http://localhost:8000/my-bookings/
+app.post("/uploads", verifyToken, async (req, res) => {
+  const { ownerId, url } = req.body;
+  if (!url) {
+    return res.status(400).json({ message: "Image url is required." });
+  }
+  const result = await uploadsCollection.insertOne({
+    ownerId: ownerId ?? req.user?.sub ?? "",
+    url,
+    createdAt: new Date().toISOString(),
+  });
+  res.send(result);
+});
 
 app.get("/", (req, res) => {
   res.send({ message: "Server is running fine!" });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running at ${PORT}`);
-});
+app.listen(PORT);
 
 export default app
