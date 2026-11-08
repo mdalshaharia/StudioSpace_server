@@ -19,12 +19,13 @@ export async function connectToMongoDB() {
   }
 }
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL,
-    credentials: true,
-  })
-);
+app.use(cors({
+  origin: [
+    "http://localhost:3000",                  // 👈 Allows your local frontend
+    "https://studio-space-ivory.vercel.app" // (Add your production frontend domain here later)
+  ],
+  credentials: true, // Required if you are handling cookies/tokens
+}));
 app.use(express.json());
 app.use(cookieParser());
 
