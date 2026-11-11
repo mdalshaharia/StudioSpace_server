@@ -21,15 +21,18 @@ export async function connectToMongoDB() {
 
 app.use(cors({
   origin: [
-    "http://localhost:3000",                  // 👈 Allows your local frontend
-    "https://studio-space-ivory.vercel.app" // (Add your production frontend domain here later)
+    "http://localhost:3000",                
+    "https://studio-space-ivory.vercel.app" 
   ],
-  credentials: true, // Required if you are handling cookies/tokens
+  credentials: true,
 }));
 app.use(express.json());
 app.use(cookieParser());
 
 const mongoClient = await connectToMongoDB();
+if (!mongoClient) {
+  throw new Error("MongoDB client is not available");
+}
 const db = mongoClient.db("studio-space");
 const studioCollection = db.collection("studios");
 const studioBookingCollection = db.collection("studio-bookings");
@@ -150,14 +153,14 @@ app.post("/studio-bookings", verifyToken, async (req, res) => {
     const conflict = await studioBookingCollection.findOne({
       studioId,
       date,
-      status: "Confirmed",
+      status: { $in: ["Pending", "Confirmed"] },
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
     });
 
     if (conflict) {
       return res.status(409).json({
-        message: `That time clashes with a confirmed booking (${conflict.startTime}–${conflict.endTime} on ${date}). Please pick a different slot.`,
+        message: `That time clashes with an existing booking (${conflict.startTime}–${conflict.endTime} on ${date}). Please pick a different slot.`,
       });
     }
 
@@ -169,6 +172,16 @@ app.post("/studio-bookings", verifyToken, async (req, res) => {
   }
 });
 
+app.get("/studio-bookings/studio/:studioId", verifyToken, async (req, res) => {
+  const { studioId } = req.params;
+  const { date } = req.query;
+  const query = { studioId, status: { $in: ["Pending", "Confirmed"] } };
+  if (date) query.date = date;
+
+  const result = await studioBookingCollection.find(query).toArray();
+  res.send(result);
+});
+
 app.get("/studio-bookings/:userId", verifyToken, async (req, res) => {
   const { userId } = req.params;
   const result = await studioBookingCollection.find({ userId: userId }).toArray();
@@ -177,12 +190,19 @@ app.get("/studio-bookings/:userId", verifyToken, async (req, res) => {
 
 app.delete("/studio-bookings/:studioId", verifyToken, async (req, res) => {
   const { studioId } = req.params;
-  const { userId } = req.query;
+  const { userId, date, startTime, endTime } = req.query;
+
+  if (!userId || !startTime || !endTime) {
+    return res.status(400).json({ message: "userId, startTime and endTime are required." });
+  }
 
   try {
     const result = await studioBookingCollection.deleteOne({
       studioId: studioId,
       userId: userId,
+      ...(date ? { date } : {}),
+      startTime: startTime,
+      endTime: endTime,
     });
 
     res.json(result);
@@ -254,6 +274,8 @@ app.get("/", (req, res) => {
   res.send({ message: "Server is running fine!" });
 });
 
-app.listen(PORT);
+if (process.env.VERCEL !== "1") {
+  app.listen(PORT);
+}
 
 export default app
